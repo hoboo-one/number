@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -37,6 +37,16 @@
         </div>
 
         <form id="storyboard-form" class="control-form">
+          <label class="field">
+            <span>OpenAI API Key</span>
+            <input
+              id="api-key"
+              name="apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="Enter your own OpenAI API key"
+            />
+          </label>
           <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传产品图片">
             <input id="product-images" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" multiple />
             <p class="dropzone-title">拖拽产品图到这里，或点击上传</p>
@@ -123,7 +133,7 @@
             <button type="button" id="generate-all" class="button button-secondary">逐张生成全部</button>
           </div>
 
-          <p class="helper">真正渲染图片时需要在 Vercel 环境变量里配置 <code>OPENAI_API_KEY</code>。首版会先给你可编辑的分镜蓝图，再逐张出图，避免一次请求太重。</p>
+          <p class="helper">这个站点不提供默认额度。你输入的 key 只会跟随当前会话用于出图请求；分镜蓝图仍然会先在浏览器本地生成。</p>
         </form>
       </aside>
 

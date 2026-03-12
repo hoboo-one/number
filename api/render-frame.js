@@ -7,17 +7,8 @@ export default async function handler(request) {
   if (request.method !== "POST") {
     return json({ error: "Method not allowed." }, 405);
   }
-
-  if (!process.env.OPENAI_API_KEY) {
-    return json(
-      {
-        error: "当前环境没有配置 OPENAI_API_KEY。请先在 Vercel 项目环境变量里补上。",
-      },
-      503,
-    );
-  }
-
   try {
+    const apiKey = request.headers.get("x-openai-key")?.trim();
     const form = await request.formData();
     const prompt = String(form.get("prompt") || "").trim();
     const inputFidelity = String(form.get("inputFidelity") || "low").trim();
@@ -25,6 +16,10 @@ export default async function handler(request) {
     const images = form
       .getAll("images")
       .filter((item) => typeof item === "object" && item !== null && "name" in item);
+
+    if (!apiKey) {
+      return json({ error: "Missing OpenAI API key. Enter your own key in the page first." }, 401);
+    }
 
     if (!prompt) {
       return json({ error: "缺少生成提示词。" }, 400);
@@ -49,7 +44,7 @@ export default async function handler(request) {
     const response = await fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: payload,
     });

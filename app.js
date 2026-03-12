@@ -1,5 +1,6 @@
 ﻿const MAX_FILES = 6;
 const STORAGE_KEY = "anglelab-history";
+const API_KEY_STORAGE = "anglelab-openai-key";
 
 const state = {
   files: [],
@@ -11,6 +12,7 @@ const state = {
 const refs = {
   form: document.querySelector("#storyboard-form"),
   uploadInput: document.querySelector("#product-images"),
+  apiKeyInput: document.querySelector("#api-key"),
   dropzone: document.querySelector("#dropzone"),
   previewStrip: document.querySelector("#preview-strip"),
   uploadSummary: document.querySelector("#upload-summary"),
@@ -139,6 +141,7 @@ const shotLibrary = [
 ];
 
 bindEvents();
+hydrateApiKey();
 renderHistory();
 
 function bindEvents() {
@@ -177,6 +180,7 @@ function bindEvents() {
 
   refs.generateAll.addEventListener("click", generateAllFrames);
   refs.clearHistory.addEventListener("click", clearHistory);
+  refs.apiKeyInput.addEventListener("input", persistApiKey);
 }
 
 async function addFiles(fileList) {
@@ -365,6 +369,13 @@ async function generateFrame(storyId) {
     return;
   }
 
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    setStatus("Enter your own OpenAI API key before generating images.", "error");
+    refs.apiKeyInput.focus();
+    return;
+  }
+
   state.activeJobs.add(storyId);
   renderStoryboards();
   setStatus(`正在生成「${story.title}」...`, "working");
@@ -381,6 +392,9 @@ async function generateFrame(storyId) {
 
     const response = await fetch("/api/render-frame", {
       method: "POST",
+      headers: {
+        "x-openai-key": apiKey,
+      },
       body: payload,
     });
 
@@ -405,6 +419,12 @@ async function generateFrame(storyId) {
 async function generateAllFrames() {
   if (!state.storyboards.length) {
     setStatus("先生成分镜蓝图，再批量出图。", "error");
+    return;
+  }
+
+  if (!getApiKey()) {
+    setStatus("Enter your own OpenAI API key before generating images.", "error");
+    refs.apiKeyInput.focus();
     return;
   }
 
@@ -459,6 +479,33 @@ function clearHistory() {
   state.history = [];
   window.localStorage.removeItem(STORAGE_KEY);
   renderHistory();
+}
+
+function hydrateApiKey() {
+  try {
+    const value = window.sessionStorage.getItem(API_KEY_STORAGE) || "";
+    refs.apiKeyInput.value = value;
+  } catch {
+    refs.apiKeyInput.value = "";
+  }
+}
+
+function persistApiKey() {
+  const value = refs.apiKeyInput.value.trim();
+
+  try {
+    if (value) {
+      window.sessionStorage.setItem(API_KEY_STORAGE, value);
+    } else {
+      window.sessionStorage.removeItem(API_KEY_STORAGE);
+    }
+  } catch {
+    // Ignore sessionStorage access issues and keep the value only in memory.
+  }
+}
+
+function getApiKey() {
+  return refs.apiKeyInput.value.trim();
 }
 
 function setStatus(message, tone = "idle") {
