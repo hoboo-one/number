@@ -1,0 +1,7 @@
+﻿{
+  "name": "anglelab-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A Vercel-ready product storyboard image generator MVP."
+}

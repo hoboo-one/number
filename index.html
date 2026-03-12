@@ -1,0 +1,198 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AngleLab Studio</title>
+  <meta name="description" content="上传产品图，生成适合广告投放与内容种草的 16:9 多分镜图片蓝图。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&family=Noto+Serif+SC:wght@700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page-noise" aria-hidden="true"></div>
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">ANGLELAB STUDIO / PRODUCT STORYBOARDER</p>
+        <h1>把产品图拆成一套可以直接开拍的 16:9 分镜系统。</h1>
+        <p class="hero-text">上传 1 到 6 张产品参考图，选择类目、风格和还原度，先生成镜头蓝图，再逐张渲染广告感场景图。</p>
+      </div>
+      <div class="hero-aside">
+        <div class="hero-chip">首版能力：分镜蓝图 + 单张逐步生成</div>
+        <div class="hero-chip">推荐部署：Vercel + OpenAI Image API</div>
+        <div class="hero-chip">默认输出：16:9 横版广告图</div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel panel-controls">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Control Deck</p>
+            <h2>产品输入</h2>
+          </div>
+          <span class="panel-tag">MVP</span>
+        </div>
+
+        <form id="storyboard-form" class="control-form">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传产品图片">
+            <input id="product-images" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+            <p class="dropzone-title">拖拽产品图到这里，或点击上传</p>
+            <p class="dropzone-text">支持 1 到 6 张 JPG / PNG / WebP。多角度参考图会显著提升一致性。</p>
+          </div>
+
+          <div id="upload-summary" class="upload-summary muted">还没有上传产品图。</div>
+          <div id="preview-strip" class="preview-strip" aria-live="polite"></div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>产品类目</span>
+              <select name="category">
+                <option value="beauty">美妆护肤</option>
+                <option value="electronics">3C 数码</option>
+                <option value="food">食品饮料</option>
+                <option value="fashion">服饰配件</option>
+                <option value="home">家居生活</option>
+                <option value="generic">通用消费品</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>镜头数量</span>
+              <select name="shotCount">
+                <option value="4">4 张</option>
+                <option value="6" selected>6 张</option>
+                <option value="8">8 张</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>视觉方向</span>
+              <select name="mood">
+                <option value="clean">清透极简</option>
+                <option value="luxury">高级质感</option>
+                <option value="tech">未来科技</option>
+                <option value="lifestyle">生活方式</option>
+                <option value="appetite">食欲大片</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>产品还原度</span>
+              <select name="fidelity">
+                <option value="faithful">外观还原优先</option>
+                <option value="balanced" selected>平衡还原与创意</option>
+                <option value="creative">广告创意优先</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>渲染质量</span>
+              <select name="quality">
+                <option value="low" selected>低成本预览</option>
+                <option value="medium">中等质量</option>
+                <option value="high">高质量大片</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>目标受众</span>
+              <input name="audience" type="text" placeholder="例如：25-35 岁都市女性 / 科技发烧友" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>产品名或核心识别词</span>
+            <input name="productName" type="text" placeholder="例如：玻尿酸精华 / 无线耳机 / 燕麦奶" />
+          </label>
+
+          <label class="field">
+            <span>卖点关键词</span>
+            <textarea name="highlights" rows="3" placeholder="例如：轻薄、哑光金属边框、防水、低糖、留香持久。用逗号或换行分隔。"></textarea>
+          </label>
+
+          <label class="field">
+            <span>额外镜头要求</span>
+            <textarea name="directives" rows="3" placeholder="例如：不要人物正脸；尽量保留 logo；希望镜头有大面积留白方便后期加字。"></textarea>
+          </label>
+
+          <div class="actions">
+            <button type="submit" class="button button-primary">生成分镜蓝图</button>
+            <button type="button" id="generate-all" class="button button-secondary">逐张生成全部</button>
+          </div>
+
+          <p class="helper">真正渲染图片时需要在 Vercel 环境变量里配置 <code>OPENAI_API_KEY</code>。首版会先给你可编辑的分镜蓝图，再逐张出图，避免一次请求太重。</p>
+        </form>
+      </aside>
+
+      <section class="panel panel-output">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Storyboard</p>
+            <h2>镜头蓝图与渲染结果</h2>
+          </div>
+          <div id="status-pill" class="status-pill status-idle">等待产品输入</div>
+        </div>
+
+        <div id="status-banner" class="status-banner">上传产品图后点击“生成分镜蓝图”，系统会根据你的产品类目和风格生成多角度分镜建议。</div>
+
+        <div id="storyboard-grid" class="storyboard-grid" aria-live="polite">
+          <article class="empty-state">
+            <p class="empty-title">还没有分镜蓝图</p>
+            <p class="empty-text">先上传产品图，系统会为你生成主视觉、材质特写、场景展示、功能卖点等 16:9 镜头。</p>
+          </article>
+        </div>
+
+        <div class="history-shell">
+          <div class="history-head">
+            <h3>最近生成记录</h3>
+            <button type="button" id="clear-history" class="text-button">清空</button>
+          </div>
+          <div id="history-list" class="history-list"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <template id="preview-template">
+    <figure class="preview-item">
+      <img alt="" />
+      <button type="button" class="preview-remove" aria-label="移除图片">×</button>
+    </figure>
+  </template>
+
+  <template id="card-template">
+    <article class="story-card">
+      <div class="story-visual">
+        <img class="story-image" alt="" />
+        <div class="story-overlay">
+          <span class="story-index"></span>
+          <span class="story-state">蓝图</span>
+        </div>
+      </div>
+      <div class="story-body">
+        <div class="story-head">
+          <div>
+            <p class="story-label"></p>
+            <h3 class="story-title"></h3>
+          </div>
+          <span class="story-badge"></span>
+        </div>
+        <p class="story-angle"></p>
+        <p class="story-direction"></p>
+        <details class="prompt-box">
+          <summary>查看生成提示词</summary>
+          <pre class="story-prompt"></pre>
+        </details>
+        <div class="story-actions">
+          <button type="button" class="button button-small button-secondary card-generate">生成这张</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
