@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AngleLab Studio</title>
-  <meta name="description" content="上传产品图，生成适合广告投放与内容种草的 16:9 多分镜图片蓝图。" />
+  <meta name="description" content="上传产品图，生成适合广告投放与内容种草的 16:9 多分镜产品图。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&family=Noto+Serif+SC:wght@700;900&display=swap" rel="stylesheet" />
@@ -17,7 +17,7 @@
       <div class="hero-copy">
         <p class="eyebrow">ANGLELAB STUDIO / PRODUCT STORYBOARDER</p>
         <h1>把产品图拆成一套可以直接开拍的 16:9 分镜系统。</h1>
-        <p class="hero-text">上传 1 到 6 张产品参考图，选择类目、风格和还原度，先生成镜头蓝图，再逐张渲染广告感场景图。</p>
+        <p class="hero-text">上传 1 到 6 张产品参考图，选择类目、视觉方向和还原度，先生成多角度分镜蓝图，再逐张输出广告感场景图。</p>
       </div>
       <div class="hero-aside">
         <div class="hero-chip">首版能力：分镜蓝图 + 单张逐步生成</div>
@@ -47,10 +47,11 @@
               placeholder="Enter your own OpenAI API key"
             />
           </label>
+
           <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传产品图片">
             <input id="product-images" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" multiple />
             <p class="dropzone-title">拖拽产品图到这里，或点击上传</p>
-            <p class="dropzone-text">支持 1 到 6 张 JPG / PNG / WebP。多角度参考图会显著提升一致性。</p>
+            <p class="dropzone-text">支持 1 到 6 张 JPG / PNG / WebP。多角度参考图会明显提升一致性。</p>
           </div>
 
           <div id="upload-summary" class="upload-summary muted">还没有上传产品图。</div>
@@ -103,7 +104,7 @@
               <select name="quality">
                 <option value="low" selected>低成本预览</option>
                 <option value="medium">中等质量</option>
-                <option value="high">高质量大片</option>
+                <option value="high">高质感大片</option>
               </select>
             </label>
 
@@ -125,7 +126,7 @@
 
           <label class="field">
             <span>额外镜头要求</span>
-            <textarea name="directives" rows="3" placeholder="例如：不要人物正脸；尽量保留 logo；希望镜头有大面积留白方便后期加字。"></textarea>
+            <textarea name="directives" rows="3" placeholder="例如：不要人物正脸；尽量保留 logo；希望有大片留白方便后期加字。"></textarea>
           </label>
 
           <div class="actions">
@@ -153,6 +154,21 @@
             <p class="empty-title">还没有分镜蓝图</p>
             <p class="empty-text">先上传产品图，系统会为你生成主视觉、材质特写、场景展示、功能卖点等 16:9 镜头。</p>
           </article>
+        </div>
+
+        <div class="results-shell">
+          <div class="history-head">
+            <h3>生成结果</h3>
+            <span class="results-note">成功出图后会显示在这里</span>
+          </div>
+          <div id="result-grid" class="result-grid" aria-live="polite">
+            <article class="empty-state empty-state-compact">
+              <div>
+                <p class="empty-title">还没有生成图片</p>
+                <p class="empty-text">先上传产品图并生成分镜，再点击“生成这张”或“逐张生成全部”。</p>
+              </div>
+            </article>
+          </div>
         </div>
 
         <div class="history-shell">
@@ -196,8 +212,31 @@
           <summary>查看生成提示词</summary>
           <pre class="story-prompt"></pre>
         </details>
+        <p class="story-error" hidden></p>
         <div class="story-actions">
           <button type="button" class="button button-small button-secondary card-generate">生成这张</button>
+          <a class="button button-small button-ghost card-download" download target="_blank" rel="noreferrer" hidden>下载图片</a>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <template id="result-template">
+    <article class="result-card">
+      <div class="result-visual">
+        <img class="result-image" alt="" />
+      </div>
+      <div class="result-body">
+        <div class="result-head">
+          <div>
+            <p class="story-label result-label"></p>
+            <h3 class="result-title"></h3>
+          </div>
+          <span class="story-badge result-badge"></span>
+        </div>
+        <p class="result-meta"></p>
+        <div class="result-actions">
+          <a class="button button-small button-secondary result-download" download target="_blank" rel="noreferrer">下载图片</a>
         </div>
       </div>
     </article>

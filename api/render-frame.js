@@ -1,12 +1,13 @@
 ﻿const QUALITY_VALUES = new Set(["low", "medium", "high"]);
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export default async function handler(request) {
   if (request.method !== "POST") {
     return json({ error: "Method not allowed." }, 405);
   }
+
   try {
     const apiKey = request.headers.get("x-openai-key")?.trim();
     const form = await request.formData();
@@ -49,14 +50,15 @@ export default async function handler(request) {
       body: payload,
     });
 
-    const data = await response.json();
+    const data = await readResponseBody(response);
 
     if (!response.ok) {
       return json(
         {
           error:
             data?.error?.message ||
-            "OpenAI 图片接口调用失败，请检查 key、额度或提示词。",
+            data?.error ||
+            `OpenAI 图片接口调用失败 (${response.status})。请检查 key、额度或提示词。`,
         },
         response.status,
       );
@@ -74,7 +76,7 @@ export default async function handler(request) {
   } catch (error) {
     return json(
       {
-        error: error instanceof Error ? error.message : "服务器处理请求时出错。",
+        error: formatUnhandledError(error),
       },
       500,
     );
@@ -84,6 +86,33 @@ export default async function handler(request) {
 function normalizeQuality(value) {
   const candidate = String(value || "low").trim().toLowerCase();
   return QUALITY_VALUES.has(candidate) ? candidate : "low";
+}
+
+async function readResponseBody(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return { error: "OpenAI 返回了无法解析的 JSON 响应。" };
+    }
+  }
+
+  const text = await response.text();
+  return { error: text.trim() || "OpenAI 没有返回详细错误信息。" };
+}
+
+function formatUnhandledError(error) {
+  if (!(error instanceof Error)) {
+    return "服务器处理请求时出错。";
+  }
+
+  if (error.name === "AbortError") {
+    return "请求 OpenAI 超时，请稍后重试。";
+  }
+
+  return error.message || "服务器处理请求时出错。";
 }
 
 function json(data, status = 200) {

@@ -17,6 +17,7 @@ const refs = {
   previewStrip: document.querySelector("#preview-strip"),
   uploadSummary: document.querySelector("#upload-summary"),
   storyboardGrid: document.querySelector("#storyboard-grid"),
+  resultGrid: document.querySelector("#result-grid"),
   statusBanner: document.querySelector("#status-banner"),
   statusPill: document.querySelector("#status-pill"),
   generateAll: document.querySelector("#generate-all"),
@@ -24,6 +25,7 @@ const refs = {
   historyList: document.querySelector("#history-list"),
   previewTemplate: document.querySelector("#preview-template"),
   cardTemplate: document.querySelector("#card-template"),
+  resultTemplate: document.querySelector("#result-template"),
 };
 
 const categoryProfiles = {
@@ -142,6 +144,9 @@ const shotLibrary = [
 
 bindEvents();
 hydrateApiKey();
+renderPreviews();
+renderStoryboards();
+renderResults();
 renderHistory();
 
 function bindEvents() {
@@ -265,6 +270,7 @@ function handleBuildStoryboard() {
   state.storyboards = buildStoryboard(config);
   persistHistory(config);
   renderStoryboards();
+  renderResults();
   setStatus("分镜蓝图已生成。你可以逐张生成，也可以点击“逐张生成全部”。", "working");
 }
 
@@ -287,6 +293,7 @@ function buildStoryboard(config) {
       : "Use the uploaded reference image as the source of truth for product shape, color, and branding.";
 
   return shotLibrary.slice(0, config.shotCount).map((shot, index) => {
+    const referenceImageUrl = state.files[Math.min(index, state.files.length - 1)].previewUrl;
     const prompt = [
       `Create a premium 16:9 commercial product image for ${productName}.`,
       `Shot type: ${shot.title}.`,
@@ -301,7 +308,9 @@ function buildStoryboard(config) {
       "Keep the product as the primary subject, centered in commercial hierarchy, with believable studio-grade lighting.",
       "No text, no watermark, no fake extra accessories unless clearly motivated by the scene, no duplicate products unless compositionally needed.",
       "Render as a polished advertising still frame with realistic materials, clean edges, and high-end retouching.",
-    ].filter(Boolean).join(" ");
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     return {
       id: crypto.randomUUID(),
@@ -312,7 +321,12 @@ function buildStoryboard(config) {
       direction: shot.direction,
       badge: shot.badge,
       prompt,
-      imageUrl: state.files[Math.min(index, state.files.length - 1)].previewUrl,
+      imageUrl: referenceImageUrl,
+      referenceImageUrl,
+      renderedImageUrl: "",
+      renderedAt: "",
+      errorMessage: "",
+      usage: null,
       state: "blueprint",
       config,
     };
@@ -336,6 +350,8 @@ function renderStoryboards() {
     const node = refs.cardTemplate.content.firstElementChild.cloneNode(true);
     const img = node.querySelector(".story-image");
     const generateButton = node.querySelector(".card-generate");
+    const downloadLink = node.querySelector(".card-download");
+    const errorNode = node.querySelector(".story-error");
 
     img.src = story.imageUrl;
     img.alt = `${story.title} 预览`;
@@ -352,6 +368,17 @@ function renderStoryboards() {
       generateButton.textContent = "重新生成";
     }
 
+    if (story.state === "error" && story.errorMessage) {
+      errorNode.hidden = false;
+      errorNode.textContent = story.errorMessage;
+    }
+
+    if (story.renderedImageUrl) {
+      downloadLink.hidden = false;
+      downloadLink.href = story.renderedImageUrl;
+      downloadLink.download = buildDownloadName(story);
+    }
+
     if (state.activeJobs.has(story.id)) {
       generateButton.disabled = true;
       generateButton.textContent = "生成中...";
@@ -363,6 +390,52 @@ function renderStoryboards() {
   });
 }
 
+function renderResults() {
+  refs.resultGrid.innerHTML = "";
+
+  const renderedStories = state.storyboards
+    .filter((story) => Boolean(story.renderedImageUrl))
+    .sort((left, right) => new Date(right.renderedAt || 0) - new Date(left.renderedAt || 0));
+
+  if (!renderedStories.length) {
+    refs.resultGrid.innerHTML = `
+      <article class="empty-state empty-state-compact">
+        <div>
+          <p class="empty-title">还没有生成图片</p>
+          <p class="empty-text">生成成功后，图片会固定保留在这里，方便你直接查看和下载。</p>
+        </div>
+      </article>
+    `;
+    return;
+  }
+
+  renderedStories.forEach((story) => {
+    const node = refs.resultTemplate.content.firstElementChild.cloneNode(true);
+    const img = node.querySelector(".result-image");
+    const downloadLink = node.querySelector(".result-download");
+    const meta = [];
+
+    img.src = story.renderedImageUrl;
+    img.alt = `${story.title} 生成结果`;
+    node.querySelector(".result-label").textContent = story.label;
+    node.querySelector(".result-title").textContent = story.title;
+    node.querySelector(".result-badge").textContent = story.badge;
+
+    if (story.renderedAt) {
+      meta.push(`生成于 ${formatDate(story.renderedAt)}`);
+    }
+    meta.push(`质量 ${mapQuality(story.config.quality)}`);
+    if (story.usage?.total_tokens) {
+      meta.push(`tokens ${story.usage.total_tokens}`);
+    }
+
+    node.querySelector(".result-meta").textContent = meta.join(" · ");
+    downloadLink.href = story.renderedImageUrl;
+    downloadLink.download = buildDownloadName(story);
+    refs.resultGrid.appendChild(node);
+  });
+}
+
 async function generateFrame(storyId) {
   const story = state.storyboards.find((item) => item.id === storyId);
   if (!story || state.activeJobs.has(storyId)) {
@@ -371,12 +444,14 @@ async function generateFrame(storyId) {
 
   const apiKey = getApiKey();
   if (!apiKey) {
-    setStatus("Enter your own OpenAI API key before generating images.", "error");
+    setStatus("先输入你自己的 OpenAI API Key，再开始生成图片。", "error");
     refs.apiKeyInput.focus();
     return;
   }
 
   state.activeJobs.add(storyId);
+  story.state = "working";
+  story.errorMessage = "";
   renderStoryboards();
   setStatus(`正在生成「${story.title}」...`, "working");
 
@@ -398,21 +473,32 @@ async function generateFrame(storyId) {
       body: payload,
     });
 
-    const data = await response.json();
+    const data = await parseApiResponse(response);
 
     if (!response.ok) {
-      throw new Error(data.error || "图片生成失败。");
+      throw new Error(formatApiError(response.status, data.error));
+    }
+
+    if (!data.image) {
+      throw new Error("接口返回成功，但没有带回图片数据。请稍后重试。");
     }
 
     story.imageUrl = data.image;
+    story.renderedImageUrl = data.image;
+    story.renderedAt = new Date().toISOString();
+    story.usage = data.usage || null;
     story.state = "rendered";
-    setStatus(`「${story.title}」生成完成。`, "working");
+    story.errorMessage = "";
+    setStatus(`「${story.title}」生成完成，结果已显示在下方结果区。`, "working");
   } catch (error) {
-    story.state = "blueprint";
-    setStatus(error.message || "生成失败，请稍后再试。", "error");
+    story.state = "error";
+    story.imageUrl = story.renderedImageUrl || story.referenceImageUrl;
+    story.errorMessage = error instanceof Error ? error.message : "生成失败，请稍后再试。";
+    setStatus(story.errorMessage, "error");
   } finally {
     state.activeJobs.delete(storyId);
     renderStoryboards();
+    renderResults();
   }
 }
 
@@ -423,13 +509,24 @@ async function generateAllFrames() {
   }
 
   if (!getApiKey()) {
-    setStatus("Enter your own OpenAI API key before generating images.", "error");
+    setStatus("先输入你自己的 OpenAI API Key，再开始生成图片。", "error");
     refs.apiKeyInput.focus();
     return;
   }
 
+  let successCount = 0;
+
   for (const story of state.storyboards) {
+    const hadImage = Boolean(story.renderedImageUrl);
     await generateFrame(story.id);
+    if (!hadImage && state.storyboards.find((item) => item.id === story.id)?.renderedImageUrl) {
+      successCount += 1;
+    }
+  }
+
+  const renderedCount = state.storyboards.filter((story) => story.renderedImageUrl).length;
+  if (renderedCount) {
+    setStatus(`批量处理完成，当前共有 ${renderedCount} 张结果图，其中本轮新增 ${successCount} 张。`, "working");
   }
 }
 
@@ -539,8 +636,77 @@ function labelMood(mood) {
   return labels[mood] || "未分类";
 }
 
+function mapQuality(value) {
+  const labels = {
+    low: "低成本预览",
+    medium: "中等质量",
+    high: "高质感大片",
+  };
+
+  return labels[value] || "默认质量";
+}
+
 function mapStoryState(value) {
-  return value === "rendered" ? "已出图" : "蓝图";
+  const labels = {
+    blueprint: "蓝图",
+    working: "生成中",
+    rendered: "已出图",
+    error: "失败",
+  };
+
+  return labels[value] || "蓝图";
+}
+
+async function parseApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return {
+        error: "服务端返回了无法解析的 JSON 响应。",
+      };
+    }
+  }
+
+  const text = await response.text();
+  return {
+    error: text.trim() || `服务端返回了 ${response.status}，但没有附带详细错误信息。`,
+  };
+}
+
+function formatApiError(status, message) {
+  const detail = String(message || "请求失败，请稍后重试。").trim();
+
+  if (status === 400) {
+    return `请求参数有问题：${detail}`;
+  }
+  if (status === 401) {
+    return `API Key 不可用：${detail}`;
+  }
+  if (status === 408 || status === 504) {
+    return `图片生成超时：${detail}`;
+  }
+  if (status === 429) {
+    return `请求过于频繁或额度不足：${detail}`;
+  }
+  if (status >= 500) {
+    return `服务端处理失败 (${status})：${detail}`;
+  }
+
+  return `图片生成失败 (${status})：${detail}`;
+}
+
+function buildDownloadName(story) {
+  const productName = story.config.productName || state.files[0]?.file?.name || "product";
+  const safeName = productName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .trim()
+    .replace(/\s+/g, "-");
+
+  return `${safeName || "product"}-shot-${String(story.index).padStart(2, "0")}.jpg`;
 }
 
 function fileToDataUrl(file) {
