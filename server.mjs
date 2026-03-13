@@ -9,7 +9,7 @@ import renderFrame from "./api/render-frame.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
-const host = process.env.HOST || "0.0.0.0";
+const host = process.env.HOST || "::";
 const port = Number(process.env.PORT || 3000);
 
 const mimeTypes = {
@@ -26,7 +26,8 @@ const mimeTypes = {
 
 const server = http.createServer(async (req, res) => {
   try {
-    const url = new URL(req.url || "/", `http://${host}:${port}`);
+    const requestHost = req.headers.host || (host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`);
+    const url = new URL(req.url || "/", `http://${requestHost}`);
 
     if (url.pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
