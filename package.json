@@ -1,11 +1,12 @@
-{
+﻿{
   "name": "anglelab-studio",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A Vercel-ready product storyboard image generator MVP.",
+  "description": "A Railway-ready product storyboard image generator MVP.",
   "scripts": {
-    "dev": "node scripts/dev-server.mjs",
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
     "test:render": "node scripts/test-render.mjs"
   }
 }

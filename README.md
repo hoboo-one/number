@@ -1,43 +1,44 @@
-# AngleLab Studio
+﻿# AngleLab Studio
 
-A Vercel-ready MVP for generating 16:9 product storyboard images from uploaded product references.
+A Railway-ready MVP for generating 16:9 product storyboard images from uploaded product references.
 
 ## What this version does
 
 - Upload 1-6 product reference images.
 - Build a multi-shot storyboard blueprint locally in the browser.
-- Render each shot one by one through OpenAI image edits.
+- Compress reference images client-side before upload.
+- Render each shot one by one through the same-origin `/api/render-frame` backend.
 - Ask each user to bring their own OpenAI API key in the web UI.
 - Keep the latest six blueprint configurations in local browser storage.
 
 ## Local development
 
-1. Put your OpenAI key into `.env.local` if you want to run CLI tests:
-   `OPENAI_API_KEY=...`
-2. Start the local server:
+1. Start the local server:
    `npm run dev`
-3. Open `http://127.0.0.1:3000`
-4. Optional: run a direct backend render test:
+2. Open `http://127.0.0.1:3000`
+3. Optional: run a direct backend render test:
    `npm run test:render -- --input path/to/product.png --prompt "Create a premium 16:9 product shot."`
 
-The local server uses the same `api/render-frame.js` handler as production, so we can debug API behavior before redeploying.
+The local server uses the same `api/render-frame.js` handler as Railway production, so we can debug the real render path locally before redeploying.
 
-## Deploy on Vercel
+## Deploy on Railway
 
 1. Push this repository to GitHub.
-2. Import the repository into Vercel.
-3. Deploy.
+2. Create a new Railway project.
+3. Choose `Deploy from GitHub repo` and select this repository.
+4. Railway will detect `railway.json` and run `npm start`.
+5. After the deploy is ready, open the generated Railway URL.
 
 ## Important notes
 
 - This MVP is BYOK only: the site does not ship with a default OpenAI key.
-- The API key is sent with each render request and kept only in the current browser session.
-- This MVP renders one shot at a time on purpose, which is safer for Vercel time limits and lower budgets.
+- The API key is sent with each render request and forwarded server-side to OpenAI for that request only.
+- The app is designed for a single Railway service, so the frontend and render API share one origin.
 - The frontend currently stores generation history in localStorage, not a database.
 - Output size is fixed to 16:9 (1536x1024) for the first version.
 
-## Why the first deploy failed
+## Why we moved off the Vercel-only path
 
-- The production `api/render-frame` function was capped at 60 seconds, and OpenAI image generation exceeded that window.
-- The Vercel function timeout is now raised to 300 seconds in `vercel.json`.
-- In this Codex sandbox, outbound network access to `api.openai.com` is blocked, so local code paths can be validated here, but final image output still needs to be verified on your machine or in Vercel.
+- Browser-direct OpenAI calls can fail when the user's current network cannot reach OpenAI reliably.
+- Vercel serverless functions timed out on long-running image edit requests.
+- Railway is a better fit for keeping the frontend and BYOK render API in one persistent service.
