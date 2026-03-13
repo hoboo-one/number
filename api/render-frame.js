@@ -1,4 +1,5 @@
 ﻿const QUALITY_VALUES = new Set(["low", "medium", "high"]);
+const OPENAI_TIMEOUT_MS = 120_000;
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -14,6 +15,7 @@ export default async function handler(request) {
     const prompt = String(form.get("prompt") || "").trim();
     const inputFidelity = String(form.get("inputFidelity") || "low").trim();
     const quality = normalizeQuality(form.get("quality"));
+    const model = pickModel(quality);
     const images = form
       .getAll("images")
       .filter((item) => typeof item === "object" && item !== null && "name" in item);
@@ -30,8 +32,17 @@ export default async function handler(request) {
       return json({ error: "至少需要 1 张参考产品图。" }, 400);
     }
 
+    const totalBytes = images.reduce((sum, file) => sum + (typeof file.size === "number" ? file.size : 0), 0);
+    console.log("render-frame:start", JSON.stringify({
+      quality,
+      model,
+      imageCount: images.length,
+      totalBytes,
+      inputFidelity: inputFidelity === "high" ? "high" : "low",
+    }));
+
     const payload = new FormData();
-    payload.append("model", process.env.OPENAI_IMAGE_MODEL || "gpt-image-1");
+    payload.append("model", model);
     payload.append("prompt", prompt);
     payload.append("size", "1536x1024");
     payload.append("quality", quality);
@@ -39,7 +50,7 @@ export default async function handler(request) {
     payload.append("input_fidelity", inputFidelity === "high" ? "high" : "low");
 
     images.forEach((file) => {
-      payload.append("image[]", file, file.name || "reference.png");
+      payload.append("image[]", file, file.name || "reference.webp");
     });
 
     const response = await fetch("https://api.openai.com/v1/images/edits", {
@@ -48,11 +59,13 @@ export default async function handler(request) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: payload,
+      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
     });
 
     const data = await readResponseBody(response);
 
     if (!response.ok) {
+      console.error("render-frame:openai-error", JSON.stringify({ status: response.status, error: data?.error || null }));
       return json(
         {
           error:
@@ -66,14 +79,17 @@ export default async function handler(request) {
 
     const imageBase64 = data?.data?.[0]?.b64_json;
     if (!imageBase64) {
+      console.error("render-frame:missing-image", JSON.stringify({ hasData: Boolean(data?.data) }));
       return json({ error: "OpenAI 没有返回可用图片。" }, 502);
     }
 
+    console.log("render-frame:success", JSON.stringify({ usage: data?.usage || null }));
     return json({
       image: `data:image/jpeg;base64,${imageBase64}`,
       usage: data?.usage || null,
     });
   } catch (error) {
+    console.error("render-frame:unhandled", error);
     return json(
       {
         error: formatUnhandledError(error),
@@ -86,6 +102,14 @@ export default async function handler(request) {
 function normalizeQuality(value) {
   const candidate = String(value || "low").trim().toLowerCase();
   return QUALITY_VALUES.has(candidate) ? candidate : "low";
+}
+
+function pickModel(quality) {
+  if (process.env.OPENAI_IMAGE_MODEL) {
+    return process.env.OPENAI_IMAGE_MODEL;
+  }
+
+  return quality === "low" ? "gpt-image-1-mini" : "gpt-image-1";
 }
 
 async function readResponseBody(response) {
@@ -108,8 +132,8 @@ function formatUnhandledError(error) {
     return "服务器处理请求时出错。";
   }
 
-  if (error.name === "AbortError") {
-    return "请求 OpenAI 超时，请稍后重试。";
+  if (error.name === "TimeoutError" || error.name === "AbortError") {
+    return "OpenAI 出图超时了。建议保持 1 张参考图、使用低成本预览，或换一张更小的产品图再试。";
   }
 
   return error.message || "服务器处理请求时出错。";

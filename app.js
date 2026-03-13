@@ -1,4 +1,6 @@
 ﻿const MAX_FILES = 6;
+const MAX_REFERENCE_DIMENSION = 1600;
+const REFERENCE_EXPORT_QUALITY = 0.86;
 const STORAGE_KEY = "anglelab-history";
 const API_KEY_STORAGE = "anglelab-openai-key";
 
@@ -204,11 +206,15 @@ async function addFiles(fileList) {
   }
 
   const prepared = await Promise.all(
-    accepted.map(async (file) => ({
-      id: crypto.randomUUID(),
-      file,
-      previewUrl: await fileToDataUrl(file),
-    })),
+    accepted.map(async (file) => {
+      const optimizedFile = await optimizeReferenceImage(file);
+      return {
+        id: crypto.randomUUID(),
+        file: optimizedFile,
+        originalName: file.name,
+        previewUrl: await fileToDataUrl(optimizedFile),
+      };
+    }),
   );
 
   state.files = [...state.files, ...prepared];
@@ -219,7 +225,7 @@ async function addFiles(fileList) {
     return;
   }
 
-  setStatus("产品图已更新，可以生成新的分镜蓝图了。", "idle");
+  setStatus("产品图已优化并上传，可以生成新的分镜蓝图了。", "idle");
 }
 
 function renderPreviews() {
@@ -238,7 +244,7 @@ function renderPreviews() {
     const remove = node.querySelector(".preview-remove");
 
     img.src = entry.previewUrl;
-    img.alt = entry.file.name;
+    img.alt = entry.originalName || entry.file.name;
     remove.addEventListener("click", () => {
       state.files = state.files.filter((item) => item.id !== entry.id);
       renderPreviews();
@@ -709,6 +715,43 @@ function buildDownloadName(story) {
   return `${safeName || "product"}-shot-${String(story.index).padStart(2, "0")}.jpg`;
 }
 
+async function optimizeReferenceImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_REFERENCE_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      bitmap.close();
+      return file;
+    }
+
+    context.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, "image/webp", REFERENCE_EXPORT_QUALITY);
+    });
+
+    if (!blob) {
+      return file;
+    }
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "reference";
+    return new File([blob], `${baseName}.webp`, {
+      type: "image/webp",
+      lastModified: Date.now(),
+    });
+  } catch {
+    return file;
+  }
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -735,3 +778,4 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+
