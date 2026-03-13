@@ -1,6 +1,8 @@
 ﻿const MAX_FILES = 6;
 const MAX_REFERENCE_DIMENSION = 1600;
 const REFERENCE_EXPORT_QUALITY = 0.86;
+const OPENAI_IMAGE_ENDPOINT = "https://api.openai.com/v1/images/edits";
+const CLIENT_OPENAI_TIMEOUT_MS = 120_000;
 const STORAGE_KEY = "anglelab-history";
 const API_KEY_STORAGE = "anglelab-openai-key";
 
@@ -462,31 +464,10 @@ async function generateFrame(storyId) {
   setStatus(`正在生成「${story.title}」...`, "working");
 
   try {
-    const payload = new FormData();
-    payload.append("prompt", story.prompt);
-    payload.append("quality", story.config.quality);
-    payload.append("inputFidelity", story.config.fidelity === "faithful" ? "high" : "low");
-
-    state.files.forEach((entry) => {
-      payload.append("images", entry.file, entry.file.name);
-    });
-
-    const response = await fetch("/api/render-frame", {
-      method: "POST",
-      headers: {
-        "x-openai-key": apiKey,
-      },
-      body: payload,
-    });
-
-    const data = await parseApiResponse(response);
-
-    if (!response.ok) {
-      throw new Error(formatApiError(response.status, data.error));
-    }
+    const data = await requestImageFromOpenAI(story, apiKey);
 
     if (!data.image) {
-      throw new Error("接口返回成功，但没有带回图片数据。请稍后重试。");
+      throw new Error("OpenAI 返回成功，但没有带回图片数据。请稍后重试。");
     }
 
     story.imageUrl = data.image;
@@ -663,6 +644,57 @@ function mapStoryState(value) {
   return labels[value] || "蓝图";
 }
 
+async function requestImageFromOpenAI(story, apiKey) {
+  const payload = new FormData();
+  payload.append("model", pickClientImageModel(story.config.quality));
+  payload.append("prompt", story.prompt);
+  payload.append("size", "1536x1024");
+  payload.append("quality", story.config.quality);
+  payload.append("output_format", "jpeg");
+  payload.append("input_fidelity", story.config.fidelity === "faithful" ? "high" : "low");
+
+  state.files.forEach((entry) => {
+    payload.append("image[]", entry.file, entry.file.name);
+  });
+
+  try {
+    const response = await fetch(OPENAI_IMAGE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: payload,
+      signal: AbortSignal.timeout(CLIENT_OPENAI_TIMEOUT_MS),
+    });
+
+    const data = await parseApiResponse(response);
+
+    if (!response.ok) {
+      throw new Error(formatApiError(response.status, data.error));
+    }
+
+    const imageBase64 = data?.data?.[0]?.b64_json;
+    return {
+      image: imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : "",
+      usage: data?.usage || null,
+    };
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error("OpenAI 出图超时了。先用 1 张参考图 + 低成本预览再试。");
+    }
+
+    if (error instanceof TypeError) {
+      throw new Error("浏览器没有拿到 OpenAI 响应。请先强制刷新页面再试；如果还失败，通常是当前网络无法直连 OpenAI。");
+    }
+
+    throw error;
+  }
+}
+
+function pickClientImageModel(quality) {
+  return quality === "high" ? "gpt-image-1.5" : "gpt-image-1-mini";
+}
+
 async function parseApiResponse(response) {
   const contentType = response.headers.get("content-type") || "";
 
@@ -671,14 +703,14 @@ async function parseApiResponse(response) {
       return await response.json();
     } catch {
       return {
-        error: "服务端返回了无法解析的 JSON 响应。",
+        error: "OpenAI 返回了无法解析的 JSON 响应。",
       };
     }
   }
 
   const text = await response.text();
   return {
-    error: text.trim() || `服务端返回了 ${response.status}，但没有附带详细错误信息。`,
+    error: text.trim() || `OpenAI 返回了 ${response.status}，但没有附带详细错误信息。`,
   };
 }
 
@@ -778,4 +810,9 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+
+
+
+
+
 
