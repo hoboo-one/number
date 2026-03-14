@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -21,7 +21,7 @@
       </div>
       <div class="hero-aside">
         <div class="hero-chip">首版能力：分镜蓝图 + 单张逐步生成</div>
-        <div class="hero-chip">推荐部署：Vercel + OpenAI Image API</div>
+        <div class="hero-chip">推荐部署：Railway + OpenAI-compatible Image API</div>
         <div class="hero-chip">默认输出：16:9 横版广告图</div>
       </div>
     </section>
@@ -38,13 +38,35 @@
 
         <form id="storyboard-form" class="control-form">
           <label class="field">
-            <span>OpenAI API Key</span>
+            <span>API Key</span>
             <input
               id="api-key"
               name="apiKey"
               type="password"
               autocomplete="off"
-              placeholder="Enter your own OpenAI API key"
+              placeholder="输入你自己的 API key"
+            />
+          </label>
+
+          <label class="field">
+            <span>图片接口 URL</span>
+            <input
+              id="api-endpoint"
+              name="apiEndpoint"
+              type="url"
+              autocomplete="off"
+              placeholder="例如：https://api.openai.com/v1/images/edits"
+            />
+          </label>
+
+          <label class="field">
+            <span>图片模型名</span>
+            <input
+              id="image-model"
+              name="imageModel"
+              type="text"
+              autocomplete="off"
+              placeholder="例如：gpt-image-1 / flux-dev / your-model-name"
             />
           </label>
 
@@ -134,7 +156,7 @@
             <button type="button" id="generate-all" class="button button-secondary">逐张生成全部</button>
           </div>
 
-          <p class="helper">这个站点不提供默认额度。你输入的 key 只会留在当前会话里，出图时由服务器临时代调用 OpenAI；分镜蓝图仍然会先在浏览器本地生成。</p>
+          <p class="helper">这个站点不提供默认额度。你输入的 key、图片接口 URL、模型名只会留在当前会话里。当前版本按 OpenAI-compatible 图片编辑接口转发请求，所以第三方中转也能接，只要它兼容 <code>images/edits</code>。</p>
         </form>
       </aside>
 
@@ -245,5 +267,3 @@
   <script type="module" src="app.js"></script>
 </body>
 </html>
-
-

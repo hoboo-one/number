@@ -1,10 +1,13 @@
-﻿const MAX_FILES = 6;
+const MAX_FILES = 6;
 const MAX_REFERENCE_DIMENSION = 1600;
 const REFERENCE_EXPORT_QUALITY = 0.86;
-const OPENAI_IMAGE_ENDPOINT = "https://api.openai.com/v1/images/edits";
+const DEFAULT_IMAGE_ENDPOINT = "https://api.openai.com/v1/images/edits";
 const CLIENT_OPENAI_TIMEOUT_MS = 120_000;
 const STORAGE_KEY = "anglelab-history";
-const API_KEY_STORAGE = "anglelab-openai-key";
+const API_KEY_STORAGE = "anglelab-api-key";
+const LEGACY_API_KEY_STORAGE = "anglelab-openai-key";
+const API_ENDPOINT_STORAGE = "anglelab-image-endpoint";
+const IMAGE_MODEL_STORAGE = "anglelab-image-model";
 
 const state = {
   files: [],
@@ -17,6 +20,8 @@ const refs = {
   form: document.querySelector("#storyboard-form"),
   uploadInput: document.querySelector("#product-images"),
   apiKeyInput: document.querySelector("#api-key"),
+  apiEndpointInput: document.querySelector("#api-endpoint"),
+  imageModelInput: document.querySelector("#image-model"),
   dropzone: document.querySelector("#dropzone"),
   previewStrip: document.querySelector("#preview-strip"),
   uploadSummary: document.querySelector("#upload-summary"),
@@ -147,7 +152,7 @@ const shotLibrary = [
 ];
 
 bindEvents();
-hydrateApiKey();
+hydrateProviderConfig();
 renderPreviews();
 renderStoryboards();
 renderResults();
@@ -189,7 +194,9 @@ function bindEvents() {
 
   refs.generateAll.addEventListener("click", generateAllFrames);
   refs.clearHistory.addEventListener("click", clearHistory);
-  refs.apiKeyInput.addEventListener("input", persistApiKey);
+  refs.apiKeyInput.addEventListener("input", persistProviderConfig);
+  refs.apiEndpointInput.addEventListener("input", persistProviderConfig);
+  refs.imageModelInput.addEventListener("input", persistProviderConfig);
 }
 
 async function addFiles(fileList) {
@@ -450,9 +457,9 @@ async function generateFrame(storyId) {
     return;
   }
 
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    setStatus("先输入你自己的 OpenAI API Key，再开始生成图片。", "error");
+  const provider = getProviderConfig();
+  if (!provider.apiKey) {
+    setStatus("先输入你自己的 API Key，再开始生成图片。", "error");
     refs.apiKeyInput.focus();
     return;
   }
@@ -464,10 +471,10 @@ async function generateFrame(storyId) {
   setStatus(`正在生成「${story.title}」...`, "working");
 
   try {
-    const data = await requestImageFromServer(story, apiKey);
+    const data = await requestImageFromServer(story, provider);
 
     if (!data.image) {
-      throw new Error("OpenAI 返回成功，但没有带回图片数据。请稍后重试。");
+      throw new Error("上游图片接口返回成功，但没有带回图片数据。请稍后重试。");
     }
 
     story.imageUrl = data.image;
@@ -495,8 +502,9 @@ async function generateAllFrames() {
     return;
   }
 
-  if (!getApiKey()) {
-    setStatus("先输入你自己的 OpenAI API Key，再开始生成图片。", "error");
+  const provider = getProviderConfig();
+  if (!provider.apiKey) {
+    setStatus("先输入你自己的 API Key，再开始生成图片。", "error");
     refs.apiKeyInput.focus();
     return;
   }
@@ -565,31 +573,53 @@ function clearHistory() {
   renderHistory();
 }
 
-function hydrateApiKey() {
+function hydrateProviderConfig() {
   try {
-    const value = window.sessionStorage.getItem(API_KEY_STORAGE) || "";
-    refs.apiKeyInput.value = value;
+    refs.apiKeyInput.value =
+      window.sessionStorage.getItem(API_KEY_STORAGE) ||
+      window.sessionStorage.getItem(LEGACY_API_KEY_STORAGE) ||
+      "";
+    refs.apiEndpointInput.value = window.sessionStorage.getItem(API_ENDPOINT_STORAGE) || "";
+    refs.imageModelInput.value = window.sessionStorage.getItem(IMAGE_MODEL_STORAGE) || "";
   } catch {
     refs.apiKeyInput.value = "";
+    refs.apiEndpointInput.value = "";
+    refs.imageModelInput.value = "";
   }
 }
 
-function persistApiKey() {
-  const value = refs.apiKeyInput.value.trim();
+function persistProviderConfig() {
+  const { apiKey, endpoint, model } = getProviderConfig();
 
   try {
-    if (value) {
-      window.sessionStorage.setItem(API_KEY_STORAGE, value);
-    } else {
-      window.sessionStorage.removeItem(API_KEY_STORAGE);
-    }
+    writeSessionValue(API_KEY_STORAGE, apiKey);
+    writeSessionValue(API_ENDPOINT_STORAGE, endpoint === DEFAULT_IMAGE_ENDPOINT ? "" : endpoint);
+    writeSessionValue(IMAGE_MODEL_STORAGE, model);
+    window.sessionStorage.removeItem(LEGACY_API_KEY_STORAGE);
   } catch {
     // Ignore sessionStorage access issues and keep the value only in memory.
   }
 }
 
-function getApiKey() {
-  return refs.apiKeyInput.value.trim();
+function writeSessionValue(key, value) {
+  if (value) {
+    window.sessionStorage.setItem(key, value);
+  } else {
+    window.sessionStorage.removeItem(key);
+  }
+}
+
+function getProviderConfig() {
+  return {
+    apiKey: refs.apiKeyInput.value.trim(),
+    endpoint: normalizeEndpointInput(refs.apiEndpointInput.value),
+    model: refs.imageModelInput.value.trim(),
+  };
+}
+
+function normalizeEndpointInput(value) {
+  const candidate = String(value || "").trim();
+  return candidate || DEFAULT_IMAGE_ENDPOINT;
 }
 
 function setStatus(message, tone = "idle") {
@@ -644,7 +674,7 @@ function mapStoryState(value) {
   return labels[value] || "蓝图";
 }
 
-async function requestImageFromServer(story, apiKey) {
+async function requestImageFromServer(story, provider) {
   const payload = new FormData();
   payload.append("prompt", story.prompt);
   payload.append("quality", story.config.quality);
@@ -654,24 +684,40 @@ async function requestImageFromServer(story, apiKey) {
     payload.append("images", entry.file, entry.file.name);
   });
 
-  const response = await fetch("/api/render-frame", {
-    method: "POST",
-    headers: {
-      "x-openai-key": apiKey,
-    },
-    body: payload,
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), CLIENT_OPENAI_TIMEOUT_MS);
 
-  const data = await parseApiResponse(response);
+  try {
+    const response = await fetch("/api/render-frame", {
+      method: "POST",
+      headers: {
+        "x-api-key": provider.apiKey,
+        "x-image-endpoint": provider.endpoint,
+        "x-image-model": provider.model,
+      },
+      body: payload,
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    throw new Error(formatApiError(response.status, data.error));
+    const data = await parseApiResponse(response);
+
+    if (!response.ok) {
+      throw new Error(formatApiError(response.status, data.error));
+    }
+
+    return {
+      image: data.image || "",
+      usage: data.usage || null,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("图片接口响应超时，请稍后重试，或先切换到更快的模型 / 接口节点。");
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-
-  return {
-    image: data.image || "",
-    usage: data.usage || null,
-  };
 }
 
 async function parseApiResponse(response) {
@@ -697,19 +743,19 @@ function formatApiError(status, message) {
   const detail = String(message || "请求失败，请稍后重试。").trim();
 
   if (status === 400) {
-    return `请求参数有问题：${detail}`;
+    return `请求参数或接口配置有问题：${detail}`;
   }
   if (status === 401) {
-    return `API Key 不可用：${detail}`;
+    return `API Key、接口地址或模型名不可用：${detail}`;
   }
   if (status === 408 || status === 504) {
     return `图片生成超时：${detail}`;
   }
   if (status === 429) {
-    return `请求过于频繁或额度不足：${detail}`;
+    return `请求过于频繁、额度不足，或上游服务限流：${detail}`;
   }
   if (status >= 500) {
-    return `服务端处理失败 (${status})：${detail}`;
+    return `上游图片接口处理失败 (${status})：${detail}`;
   }
 
   return `图片生成失败 (${status})：${detail}`;
@@ -789,11 +835,3 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-
-
-
-
-
-
-
-
