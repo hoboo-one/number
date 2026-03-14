@@ -1,4 +1,4 @@
-﻿const QUALITY_VALUES = new Set(["low", "medium", "high"]);
+const QUALITY_VALUES = new Set(["low", "medium", "high"]);
 const OPENAI_TIMEOUT_MS = 120_000;
 
 export const runtime = "nodejs";
